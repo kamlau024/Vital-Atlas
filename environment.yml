@@ -1,0 +1,38 @@
+name: vital-atlas
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+
+  # Web scraping core
+  - scrapy>=2.11
+  - beautifulsoup4>=4.12
+  - lxml>=4.9
+  - requests>=2.31
+  - httpx>=0.25
+
+  # HTML to Markdown conversion
+  - html2text>=2020.1.16
+
+  # Scheduling
+  - apscheduler>=3.10
+
+  # Data handling
+  - pandas>=2.1
+  - pyyaml>=6.0
+
+  # Development and testing
+  - pytest>=7.4
+  - pytest-cov>=4.1
+  - black>=23.0
+  - flake8>=6.1
+  - ipython>=8.15
+  - jupyter>=1.0
+
+  # Additional utilities via pip
+  - pip:
+    - markdownify>=0.11.6
+    - playwright>=1.40.0
+    - scrapy-playwright>=0.0.33
