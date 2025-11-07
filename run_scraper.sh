@@ -10,21 +10,17 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}=== Vital Atlas Web Scraper ===${NC}"
 echo ""
 
-# Check if conda environment is activated
-if [[ "$CONDA_DEFAULT_ENV" != "vital-atlas" ]]; then
-    echo "Activating conda environment..."
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-    conda activate vital-atlas
-fi
+# Get the script's directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Change to project directory
-cd vital_atlas
+cd "$SCRIPT_DIR/vital_atlas"
 
 echo -e "${GREEN}Starting scraper...${NC}"
 echo ""
 
-# Run the scraper
-scrapy crawl bc_cancer "$@"
+# Run the scraper using python -m scrapy
+/opt/anaconda3/envs/vital-atlas/bin/python -m scrapy crawl bc_cancer "$@"
 
 echo ""
 echo -e "${GREEN}Scraping complete!${NC}"

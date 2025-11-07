@@ -33,9 +33,9 @@ DEFAULT_REQUEST_HEADERS = {
 }
 
 # Enable or disable spider middlewares
-SPIDER_MIDDLEWARES = {
-    "vital_atlas.middlewares.VitalAtlasSpiderMiddleware": 543,
-}
+# SPIDER_MIDDLEWARES = {
+#     "vital_atlas.middlewares.VitalAtlasSpiderMiddleware": 543,
+# }
 
 # Enable or disable downloader middlewares
 DOWNLOAD_HANDLERS = {

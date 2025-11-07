@@ -176,17 +176,10 @@ class FileStoragePipeline:
         if item.get('date_next_review'):
             lines.append(f"date_next_review: {item['date_next_review']}")
 
-        if item.get('categories'):
-            lines.append("categories:")
-            for cat in item['categories']:
-                lines.append(f"  - {cat}")
-
         if item.get('breadcrumbs'):
             lines.append("breadcrumbs:")
-            for bc in item['breadcrumbs']:
-                bc_text = bc.get('text', '').replace('"', '\\"')
-                lines.append(f'  - text: "{bc_text}"')
-                lines.append(f"    url: {bc.get('url', '')}")
+            for crumb in item['breadcrumbs']:
+                lines.append(f"  - {crumb}")
 
         if item.get('images'):
             lines.append("images:")
@@ -216,7 +209,6 @@ class FileStoragePipeline:
             'sidebar_links': item.get('sidebar_links', []),
             'related_articles': item.get('related_articles', []),
             'images': item.get('images', []),
-            'categories': item.get('categories', []),
             'tags': item.get('tags', []),
             'file_path': str(file_path),
         }

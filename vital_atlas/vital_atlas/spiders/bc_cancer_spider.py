@@ -30,7 +30,7 @@ class BCCancerSpider(scrapy.Spider):
         self.metadata_extractor = MetadataExtractor()
         self.visited_urls = set()
 
-    def start_requests(self):
+    async def start(self):
         """
         Generate initial requests with Playwright to render JavaScript.
         """
@@ -125,10 +125,10 @@ class BCCancerSpider(scrapy.Spider):
         item['date_last_update'] = dates.get('last_update')
         item['date_next_review'] = dates.get('next_review')
 
-        item['breadcrumbs'] = self.metadata_extractor.extract_breadcrumbs(response)
+        # Use URL-based hierarchy as breadcrumbs (not navigation menu)
+        item['breadcrumbs'] = self.metadata_extractor.extract_categories(response)
         item['sidebar_links'] = self.metadata_extractor.extract_sidebar_links(response)
         item['images'] = self.metadata_extractor.extract_images(response)
-        item['categories'] = self.metadata_extractor.extract_categories(response)
 
         # Extract related articles
         item['related_articles'] = self._extract_related_articles(response)

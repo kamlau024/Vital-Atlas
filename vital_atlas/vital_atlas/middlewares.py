@@ -19,15 +19,16 @@ class VitalAtlasSpiderMiddleware:
     def process_spider_input(self, response, spider):
         return None
 
-    def process_spider_output(self, response, result, spider):
-        for i in result:
+    async def process_spider_output(self, response, result, spider):
+        async for i in result:
             yield i
 
     def process_spider_exception(self, response, exception, spider):
         pass
 
-    def process_start_requests(self, start_requests, spider):
-        for r in start_requests:
+    async def process_start(self, start, spider):
+        """Process the start requests from the spider."""
+        async for r in start:
             yield r
 
     def spider_opened(self, spider):

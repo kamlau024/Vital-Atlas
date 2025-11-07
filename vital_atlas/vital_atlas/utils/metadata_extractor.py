@@ -183,24 +183,46 @@ class MetadataExtractor:
         """
         Extract category information from the page.
 
+        Primarily uses URL path to derive categories, as it's more reliable
+        than breadcrumb extraction on this site.
+
         Returns:
             List of category strings
         """
         categories = []
 
-        # Try to extract from breadcrumbs
-        breadcrumbs = MetadataExtractor.extract_breadcrumbs(response)
-        categories = [bc['text'] for bc in breadcrumbs if bc['text']]
+        # Primary source: Extract from URL path
+        # Example: /health-info/types-of-cancer/breast-cancer
+        # Becomes: ["Health Info", "Types Of Cancer", "Breast Cancer"]
+        url_path = response.url.split('?')[0]  # Remove query string
+        url_parts = url_path.split('/')
 
-        # Also try meta tags
+        for part in url_parts:
+            # Skip empty parts, protocol, and domain
+            if part and part not in ['http:', 'https:', '', 'www.bccancer.bc.ca', 'bccancer.bc.ca']:
+                # Convert kebab-case to Title Case
+                category = part.replace('-', ' ').title()
+                categories.append(category)
+
+        # Secondary source: Try meta tags (more reliable than breadcrumbs)
         meta_categories = response.css('meta[property="article:section"]::attr(content)').getall()
         categories.extend(meta_categories)
 
-        # Try to extract from URL path
-        url_parts = response.url.split('/')
-        for part in url_parts:
-            if part and part not in ['http:', 'https:', '', 'www.bccancer.bc.ca']:
-                categories.append(part.replace('-', ' ').title())
+        # Tertiary source: Only use breadcrumbs if they look reasonable
+        # (i.e., not the entire navigation menu)
+        breadcrumbs = MetadataExtractor.extract_breadcrumbs(response)
+        if breadcrumbs and len(breadcrumbs) <= 5:  # Reasonable breadcrumb length
+            for bc in breadcrumbs:
+                if bc['text'] and len(bc['text']) < 100:  # Reasonable text length
+                    categories.append(bc['text'])
 
-        # Remove duplicates
-        return list(dict.fromkeys(categories))
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_categories = []
+        for cat in categories:
+            cat_lower = cat.lower()
+            if cat_lower not in seen:
+                seen.add(cat_lower)
+                unique_categories.append(cat)
+
+        return unique_categories

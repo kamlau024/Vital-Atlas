@@ -19,7 +19,7 @@ class ArticleItem(scrapy.Item):
     date_next_review = scrapy.Field()
 
     # Navigation and relationships
-    breadcrumbs = scrapy.Field()
+    breadcrumbs = scrapy.Field()  # Hierarchical path from URL (e.g., ["Health Info", "Prevention"])
     sidebar_links = scrapy.Field()
     related_articles = scrapy.Field()
 
@@ -28,7 +28,6 @@ class ArticleItem(scrapy.Item):
 
     # Additional metadata
     page_type = scrapy.Field()
-    categories = scrapy.Field()
     tags = scrapy.Field()
 
     # Storage path

@@ -58,7 +58,7 @@ playwright install chromium
 
 ```bash
 cd vital_atlas
-scrapy list
+/opt/anaconda3/envs/vital-atlas/bin/python -m scrapy list
 ```
 
 You should see `bc_cancer` in the output.
@@ -71,13 +71,19 @@ From the `vital_atlas` directory:
 
 ```bash
 # Basic run
-scrapy crawl bc_cancer
+/opt/anaconda3/envs/vital-atlas/bin/python -m scrapy crawl bc_cancer
 
 # Run with custom settings
-scrapy crawl bc_cancer -s DOWNLOAD_DELAY=3
+/opt/anaconda3/envs/vital-atlas/bin/python -m scrapy crawl bc_cancer -s DOWNLOAD_DELAY=3
 
 # Run with logging to file
-scrapy crawl bc_cancer --logfile=scraper.log
+/opt/anaconda3/envs/vital-atlas/bin/python -m scrapy crawl bc_cancer --logfile=scraper.log
+```
+
+**Or use the convenience script from the project root:**
+
+```bash
+./run_scraper.sh
 ```
 
 ### Output Structure
