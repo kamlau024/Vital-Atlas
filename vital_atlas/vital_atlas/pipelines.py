@@ -41,7 +41,12 @@ class HtmlToMarkdownPipeline:
         """Convert HTML content to Markdown."""
         if 'content_html' in item and item['content_html']:
             spider.logger.info(f"Converting HTML to Markdown for: {item.get('url', 'unknown')}")
-            item['content_markdown'] = self.converter.convert_with_cleanup(item['content_html'])
+            # Pass the URL to convert relative links to absolute
+            base_url = item.get('url')
+            item['content_markdown'] = self.converter.convert_with_cleanup(
+                item['content_html'],
+                base_url=base_url
+            )
 
         return item
 
@@ -152,6 +157,13 @@ class FileStoragePipeline:
         """
         frontmatter = self._generate_frontmatter(item)
         content = item.get('content_markdown', '')
+        title = item.get('title', '').strip()
+
+        if title:
+            # Remove any existing title headings from the beginning of the content
+            content = self._remove_duplicate_title(content, title)
+            # Add title as top-level heading
+            content = f"# {title}\n\n{content}"
 
         full_content = f"{frontmatter}\n\n{content}"
 
@@ -215,3 +227,54 @@ class FileStoragePipeline:
 
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    @staticmethod
+    def _remove_duplicate_title(content, title):
+        """
+        Remove duplicate title headings from the beginning of the content.
+
+        This handles cases where the title already appears in the scraped content
+        as a heading (# through ######), ensuring we don't have duplicate titles.
+
+        Args:
+            content: The markdown content
+            title: The title to check for
+
+        Returns:
+            Content with duplicate title headings removed from the beginning
+        """
+        import re
+
+        if not title or not content:
+            return content
+
+        lines = content.split('\n')
+        cleaned_lines = []
+        found_title = False
+        title_lower = title.lower().strip()
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+
+            # Check if this is a heading line (starts with #)
+            heading_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+
+            if heading_match and not found_title:
+                heading_text = heading_match.group(2).strip()
+                heading_text_lower = heading_text.lower()
+
+                # Check if this heading matches the title (exact match only)
+                # We need to be strict here to avoid removing legitimate headings
+                # that happen to contain the title as a substring
+                if heading_text_lower == title_lower:
+                    # Skip this line - it's a duplicate title
+                    found_title = True
+                    continue
+
+            # Keep this line
+            cleaned_lines.append(line)
+
+        result = '\n'.join(cleaned_lines)
+
+        # Remove leading empty lines that might have been left behind
+        return result.lstrip('\n')

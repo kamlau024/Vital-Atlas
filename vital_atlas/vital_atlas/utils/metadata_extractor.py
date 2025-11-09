@@ -168,12 +168,19 @@ class MetadataExtractor:
             Page title string
         """
         # Try different title selectors in order of preference
-        title = response.css('h1::text').get()
+        # First try h1 with page-title class (specific to BC Cancer site)
+        title = response.css('h1.page-title::text').get()
 
         if not title:
+            # Try any h1
+            title = response.css('h1::text').get()
+
+        if not title:
+            # Try page title meta tag
             title = response.css('title::text').get()
 
         if not title:
+            # Try Open Graph title
             title = response.css('meta[property="og:title"]::attr(content)').get()
 
         return (title or '').strip()

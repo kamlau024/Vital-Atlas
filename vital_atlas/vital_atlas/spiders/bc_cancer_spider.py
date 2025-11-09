@@ -143,7 +143,10 @@ class BCCancerSpider(scrapy.Spider):
         """
         Extract the main content area of the page.
         Try multiple selectors to find the main content.
+        Removes navigation and TOC elements that shouldn't be part of the content.
         """
+        from bs4 import BeautifulSoup
+
         # Try different content selectors
         content_selectors = [
             'main',
@@ -155,15 +158,35 @@ class BCCancerSpider(scrapy.Spider):
             '#content',
         ]
 
+        html_content = None
         for selector in content_selectors:
-            content = response.css(selector).get()
-            if content:
+            html_content = response.css(selector).get()
+            if html_content:
                 self.logger.debug(f"Found content with selector: {selector}")
-                return content
+                break
 
-        # Fallback: get body content
-        self.logger.warning(f"Using body fallback for content extraction: {response.url}")
-        return response.css('body').get()
+        if not html_content:
+            # Fallback: get body content
+            self.logger.warning(f"Using body fallback for content extraction: {response.url}")
+            html_content = response.css('body').get()
+
+        # Clean up: remove TOC navigation elements
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Remove common TOC/navigation elements
+        for selector in ['nav', '.ms-qcb-menu', '[class*="quicklaunch"]', '[class*="navigation"]']:
+            for element in soup.select(selector):
+                element.decompose()
+
+        # Remove any list of links that only contains internal page anchors (#)
+        # These are typically table of contents lists
+        for ul in soup.find_all(['ul', 'ol']):
+            links = ul.find_all('a')
+            if links and all(link.get('href', '').startswith('#') or '#' in link.get('href', '') for link in links):
+                # This is likely a TOC - remove it
+                ul.decompose()
+
+        return str(soup)
 
     def _extract_related_articles(self, response):
         """
