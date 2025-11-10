@@ -10,7 +10,8 @@ from urllib.parse import urlparse
 import hashlib
 
 from vital_atlas.utils.html_to_markdown import HTMLToMarkdownConverter
-from vital_atlas.utils.metadata_extractor import MetadataExtractor
+from vital_atlas.utils.ccs_html_to_markdown import CCSHTMLToMarkdownConverter
+from vital_atlas.utils.bc_cancer_metadata_extractor import BCCancerMetadataExtractor
 from vital_atlas.utils.change_detector import ChangeDetector
 
 
@@ -20,7 +21,7 @@ class MetadataExtractionPipeline:
     """
 
     def __init__(self):
-        self.metadata_extractor = MetadataExtractor()
+        self.metadata_extractor = BCCancerMetadataExtractor()
 
     def process_item(self, item, spider):
         """Process item to extract metadata."""
@@ -32,18 +33,28 @@ class MetadataExtractionPipeline:
 class HtmlToMarkdownPipeline:
     """
     Convert HTML content to Markdown format.
+    Uses source-specific converters based on spider name.
     """
 
     def __init__(self):
-        self.converter = HTMLToMarkdownConverter(use_html2text=True)
+        self.converters = {
+            'bc_cancer': HTMLToMarkdownConverter(use_html2text=True),
+            'canadian_cancer_society': CCSHTMLToMarkdownConverter(use_html2text=True),
+        }
+        # Default converter
+        self.default_converter = HTMLToMarkdownConverter(use_html2text=True)
 
     def process_item(self, item, spider):
-        """Convert HTML content to Markdown."""
+        """Convert HTML content to Markdown using appropriate converter."""
         if 'content_html' in item and item['content_html']:
             spider.logger.info(f"Converting HTML to Markdown for: {item.get('url', 'unknown')}")
+
+            # Select converter based on spider name
+            converter = self.converters.get(spider.name, self.default_converter)
+
             # Pass the URL to convert relative links to absolute
             base_url = item.get('url')
-            item['content_markdown'] = self.converter.convert_with_cleanup(
+            item['content_markdown'] = converter.convert_with_cleanup(
                 item['content_html'],
                 base_url=base_url
             )

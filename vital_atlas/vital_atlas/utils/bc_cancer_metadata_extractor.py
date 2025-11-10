@@ -1,5 +1,5 @@
 """
-Utility module for extracting metadata from web pages.
+Utility module for extracting metadata from BC Cancer web pages.
 """
 
 from datetime import datetime
@@ -7,9 +7,9 @@ import re
 from typing import Dict, List, Optional
 
 
-class MetadataExtractor:
+class BCCancerMetadataExtractor:
     """
-    Extracts metadata from HTML responses.
+    Extracts metadata from BC Cancer HTML responses.
     """
 
     @staticmethod
@@ -217,7 +217,7 @@ class MetadataExtractor:
 
         # Tertiary source: Only use breadcrumbs if they look reasonable
         # (i.e., not the entire navigation menu)
-        breadcrumbs = MetadataExtractor.extract_breadcrumbs(response)
+        breadcrumbs = BCCancerMetadataExtractor.extract_breadcrumbs(response)
         if breadcrumbs and len(breadcrumbs) <= 5:  # Reasonable breadcrumb length
             for bc in breadcrumbs:
                 if bc['text'] and len(bc['text']) < 100:  # Reasonable text length

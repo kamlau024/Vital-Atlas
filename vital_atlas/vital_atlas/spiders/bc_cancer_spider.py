@@ -7,7 +7,7 @@ from datetime import datetime
 from scrapy_playwright.page import PageMethod
 
 from vital_atlas.items import ArticleItem
-from vital_atlas.utils.metadata_extractor import MetadataExtractor
+from vital_atlas.utils.bc_cancer_metadata_extractor import BCCancerMetadataExtractor
 
 
 class BCCancerSpider(scrapy.Spider):
@@ -22,29 +22,41 @@ class BCCancerSpider(scrapy.Spider):
     start_urls = ["https://www.bccancer.bc.ca/health-info"]
 
     custom_settings = {
+        'SCRAPED_DATA_DIR': '../scraped_data/bc-cancer',
         'PLAYWRIGHT_MAX_PAGES_PER_CONTEXT': 5,
     }
 
     def __init__(self, *args, **kwargs):
         super(BCCancerSpider, self).__init__(*args, **kwargs)
-        self.metadata_extractor = MetadataExtractor()
+        self.metadata_extractor = BCCancerMetadataExtractor()
         self.visited_urls = set()
+
+        # If url argument provided via -a url=..., override start_urls
+        if hasattr(self, 'url') and self.url:
+            self.start_urls = [self.url]
+            self.logger.info(f"Overriding start_urls with: {self.url}")
 
     async def start(self):
         """
         Generate initial requests with Playwright to render JavaScript.
+        If the URL looks like an article, go directly to parse_article.
         """
         for url in self.start_urls:
+            # If URL looks like an article, go directly to parse_article
+            callback = self.parse_article if self._is_article_url(url) else self.parse
+
+            self.logger.info(f"Start request for {url}: is_article={self._is_article_url(url)}, callback={callback.__name__}")
+
             yield scrapy.Request(
                 url,
                 meta={
                     "playwright": True,
                     "playwright_include_page": True,
                     "playwright_page_methods": [
-                        PageMethod("wait_for_load_state", "networkidle"),
+                        PageMethod("wait_for_load_state", "domcontentloaded"),
                     ],
                 },
-                callback=self.parse,
+                callback=callback,
                 errback=self.errback_close_page,
             )
 
