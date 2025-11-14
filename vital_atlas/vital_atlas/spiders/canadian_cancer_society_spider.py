@@ -32,6 +32,15 @@ class CanadianCancerSocietySpider(scrapy.Spider):
         'DOWNLOAD_DELAY': 1,  # Be polite to cancer.ca
         'PLAYWRIGHT_MAX_PAGES_PER_CONTEXT': 5,
         'HTTPCACHE_ENABLED': False,  # Disable cache to ensure Playwright pages load properly
+
+        # Timeout and retry settings
+        'PLAYWRIGHT_DEFAULT_NAVIGATION_TIMEOUT': 60000,  # 60 seconds (increased from 30s)
+        'RETRY_TIMES': 3,  # Retry failed requests up to 3 times
+        'RETRY_HTTP_CODES': [500, 502, 503, 504, 408, 429],  # HTTP codes to retry
+
+        # Concurrent requests (adjust based on your connection)
+        'CONCURRENT_REQUESTS': 4,  # Reduce concurrency to avoid overloading
+        'CONCURRENT_REQUESTS_PER_DOMAIN': 2,
     }
 
     def __init__(self, *args, **kwargs):
@@ -39,6 +48,7 @@ class CanadianCancerSocietySpider(scrapy.Spider):
         self.metadata_extractor = CCSMetadataExtractor()
         self.visited_urls = set()
         self.alphabetical_lists_processed = set()  # Track processed alphabetical lists
+        self.failed_urls = {}  # Track failed URLs with retry count
 
         # If url argument provided via -a url=..., override start_urls
         if hasattr(self, 'url') and self.url:
@@ -48,14 +58,10 @@ class CanadianCancerSocietySpider(scrapy.Spider):
     async def start(self):
         """
         Generate initial requests with Playwright.
-        If the URL looks like an article, go directly to parse_article.
+        All URLs start with parse() which will determine if they're articles.
         """
         for url in self.start_urls:
-            # If URL looks like an article, go directly to parse_article
-            is_article = self._is_article_url(url)
-            callback = self.parse_article if is_article else self.parse
-
-            self.logger.info(f"Start request for {url}: is_article={is_article}, callback={callback.__name__}")
+            self.logger.info(f"Start request for {url}")
 
             yield scrapy.Request(
                 url,
@@ -66,13 +72,14 @@ class CanadianCancerSocietySpider(scrapy.Spider):
                         PageMethod("wait_for_load_state", "domcontentloaded"),
                     ],
                 },
-                callback=callback,
+                callback=self.parse,
                 errback=self.errback_close_page,
             )
 
     async def parse(self, response):
         """
         Parse pages and discover article links.
+        Always extracts links to ensure comprehensive crawling.
         """
         page = response.meta.get("playwright_page")
 
@@ -110,11 +117,13 @@ class CanadianCancerSocietySpider(scrapy.Spider):
                     )
                 return
 
-        # Check if this is a content page (not just navigation)
-        if self._is_article_url(response.url):
-            # This is a content page - scrape it via parse_article
-            if page:
-                await page.close()
+        # Check if this page has content worth scraping
+        # Look for article content vs pure navigation pages
+        has_article_content = self._has_article_content(response)
+
+        if has_article_content:
+            self.logger.info(f"Found article content on: {response.url}")
+            # Scrape this page as an article
             yield scrapy.Request(
                 response.url,
                 meta={
@@ -128,24 +137,29 @@ class CanadianCancerSocietySpider(scrapy.Spider):
                 errback=self.errback_close_page,
                 dont_filter=True
             )
-            return
+            # Note: We don't return here - we continue to extract links below
 
-        if page:
-            await page.close()
-
-        # Extract all links within the target sections for further crawling
+        # Always extract and follow links within target sections
+        # This ensures we discover all pages organically
         links = response.css('a::attr(href)').getall()
+
+        self.logger.debug(f"Found {len(links)} links on {response.url}")
 
         for link in links:
             full_url = response.urljoin(link)
 
-            # Only follow links within our target sections
-            if self._is_target_section(full_url) and full_url not in self.visited_urls:
-                self.visited_urls.add(full_url)
+            # Normalize URL by removing fragment to avoid infinite loops
+            # e.g., /page#0 and /page#main-content are the same page
+            normalized_url = self._normalize_url(full_url)
 
-                # All pages go through parse to check for alphabetical lists
+            # Only follow links within our target sections
+            if self._is_target_section(normalized_url) and normalized_url not in self.visited_urls:
+                self.visited_urls.add(normalized_url)
+
+                # All pages go through parse to check for content
+                # Use normalized URL without fragment
                 yield scrapy.Request(
-                    full_url,
+                    normalized_url,
                     meta={
                         "playwright": True,
                         "playwright_include_page": True,
@@ -157,6 +171,10 @@ class CanadianCancerSocietySpider(scrapy.Spider):
                     errback=self.errback_close_page,
                     dont_filter=True
                 )
+
+        # Close the Playwright page
+        if page:
+            await page.close()
 
     async def parse_article(self, response):
         """
@@ -411,6 +429,85 @@ class CanadianCancerSocietySpider(scrapy.Spider):
         ]
         return any(section in url for section in target_sections)
 
+    def _normalize_url(self, url):
+        """
+        Normalize URL by removing fragments to avoid duplicate crawling.
+
+        URLs with fragments like #0, #main-content point to the same page
+        and should be treated as the same URL.
+
+        Example:
+            https://cancer.ca/page#0 -> https://cancer.ca/page
+            https://cancer.ca/page#main-content -> https://cancer.ca/page
+
+        Returns:
+            Normalized URL without fragment
+        """
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(url)
+        # Remove fragment (the part after #)
+        normalized = urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            parsed.query,
+            ''  # Empty fragment
+        ))
+        return normalized
+
+    def _has_article_content(self, response):
+        """
+        Detect if a page has actual article content vs being a pure navigation page.
+
+        Navigation pages typically have:
+        - Cards with links (.cards-with-cta-list)
+        - Minimal actual content
+
+        Article pages have:
+        - Substantial text content in main area
+        - Paragraphs with actual information
+
+        Returns:
+            True if the page appears to have article content worth scraping
+        """
+        # Check for main content area
+        main_content = response.css('main#main-content')
+
+        if not main_content:
+            return False
+
+        # Check if this is primarily a navigation page with cards
+        has_nav_cards = bool(main_content.css('.cards-with-cta-list').get())
+
+        # Get all paragraph text from main content
+        all_paragraphs = main_content.css('p')
+        paragraph_text = ' '.join(all_paragraphs.css('::text').getall()).strip()
+
+        # If nav cards present, get card text to subtract from total
+        if has_nav_cards:
+            card_paragraphs = main_content.css('.cards-with-cta-list p, .card p')
+            card_text = ' '.join(card_paragraphs.css('::text').getall()).strip()
+            # Rough estimation: substantial content means more than just cards
+            non_card_content_length = len(paragraph_text) - len(card_text)
+        else:
+            non_card_content_length = len(paragraph_text)
+
+        # Also check for article-specific elements
+        has_wysiwyg = bool(main_content.css('.wysiwyg').get())
+        has_headings = bool(main_content.css('h2, h3, h4').get())
+
+        # If it's primarily navigation cards with minimal content, it's not an article
+        if has_nav_cards and non_card_content_length < 300:
+            return False
+
+        # If it has substantial paragraph content or wysiwyg content, treat it as an article
+        if non_card_content_length > 300 or (has_wysiwyg and has_headings):
+            return True
+
+        return False
+
     def _is_article_url(self, url):
         """
         Determine if a URL points to a content page vs a navigation page.
@@ -439,8 +536,18 @@ class CanadianCancerSocietySpider(scrapy.Spider):
             # This is the glossary index page
             return False
 
-        # Content pages have 3+ segments
-        # e.g., cancer-information/cancer-types/breast
+        # Cancer type overview pages (3 segments) are navigation pages
+        # Their sub-pages (4+ segments) are the actual content pages
+        # e.g., /cancer-types/prostate (navigation) vs /cancer-types/prostate/diagnosis (content)
+        if '/cancer-types/' in url:
+            return len(segments) >= 4
+
+        # Treatment type overview pages follow the same pattern
+        if '/treatment-types/' in url:
+            return len(segments) >= 4
+
+        # Other content pages have 3+ segments
+        # e.g., cancer-information/resources/some-article
         return len(segments) >= 3
 
     def _has_alphabetical_list(self, response):
@@ -516,12 +623,15 @@ class CanadianCancerSocietySpider(scrapy.Spider):
         for link in all_links:
             full_url = response.urljoin(link)
 
-            if self._is_target_section(full_url) and full_url not in self.visited_urls:
-                self.visited_urls.add(full_url)
+            # Normalize URL to avoid fragment duplicates
+            normalized_url = self._normalize_url(full_url)
+
+            if self._is_target_section(normalized_url) and normalized_url not in self.visited_urls:
+                self.visited_urls.add(normalized_url)
 
                 # These are content pages, scrape them
                 yield scrapy.Request(
-                    full_url,
+                    normalized_url,
                     meta={
                         "playwright": True,
                         "playwright_include_page": True,
@@ -536,13 +646,73 @@ class CanadianCancerSocietySpider(scrapy.Spider):
 
     async def errback_close_page(self, failure):
         """
-        Handle errors and close Playwright page.
+        Handle errors and close Playwright page with intelligent retry logic.
         """
         page = failure.request.meta.get("playwright_page")
         if page:
             await page.close()
 
-        self.logger.error(f"Error processing {failure.request.url}: {failure.value}")
+        url = failure.request.url
+        error_msg = str(failure.value)
+
+        # Check if this is a timeout error
+        is_timeout = "Timeout" in error_msg or "timeout" in error_msg
+
+        # Track retry attempts
+        retry_count = self.failed_urls.get(url, 0)
+        max_retries = 3
+
+        if is_timeout and retry_count < max_retries:
+            self.failed_urls[url] = retry_count + 1
+            self.logger.warning(
+                f"Timeout on {url} (attempt {retry_count + 1}/{max_retries}). "
+                f"Retrying with longer timeout..."
+            )
+
+            # Retry with increased timeout
+            yield scrapy.Request(
+                url,
+                meta={
+                    "playwright": True,
+                    "playwright_include_page": True,
+                    "playwright_page_methods": [
+                        # Use domcontentloaded for faster loading on retry
+                        PageMethod("wait_for_load_state", "domcontentloaded"),
+                    ],
+                    "playwright_page_goto_kwargs": {
+                        "timeout": 90000,  # 90 seconds for retries
+                    },
+                },
+                callback=failure.request.callback,
+                errback=self.errback_close_page,
+                dont_filter=True,
+                priority=5  # Higher priority for retries
+            )
+        else:
+            # Log persistent failures
+            if retry_count >= max_retries:
+                self.logger.error(
+                    f"Failed {url} after {max_retries} retries. "
+                    f"Last error: {error_msg}"
+                )
+            else:
+                self.logger.error(f"Error processing {url}: {error_msg}")
+
+    def closed(self, reason):
+        """
+        Called when the spider closes. Report any failed URLs.
+        """
+        if self.failed_urls:
+            self.logger.warning(f"\n{'='*80}")
+            self.logger.warning(f"Spider closed: {reason}")
+            self.logger.warning(f"Failed to scrape {len(self.failed_urls)} URLs after retries:")
+            self.logger.warning(f"{'='*80}")
+            for url, retry_count in sorted(self.failed_urls.items()):
+                if retry_count >= 3:  # Only show URLs that exhausted retries
+                    self.logger.warning(f"  - {url} ({retry_count} attempts)")
+            self.logger.warning(f"{'='*80}\n")
+        else:
+            self.logger.info(f"Spider closed successfully with no failures: {reason}")
 
     def _determine_page_type(self, url):
         """
