@@ -2,10 +2,20 @@
 
 A web scraping application that crawls and extracts health information articles from cancer information websites, converting them to clean Markdown format for use in RAG (Retrieval-Augmented Generation) pipelines.
 
+**Downstream consumer:** [Care-Beacon](https://github.com/kamlau024/Care-Beacon) is the
+RAG system this scraper feeds — it ingests the Markdown produced here and serves cited
+answers to patient questions at https://care-beacon-health.vercel.app. See
+[Use with RAG Pipeline](#use-with-rag-pipeline) for how the two fit together.
+
 ## Supported Data Sources
 
 - **BC Cancer** (bccancer.bc.ca) - BC Cancer Agency health information
 - **Canadian Cancer Society** (cancer.ca) - Comprehensive cancer information, treatments, and living with cancer resources
+- **Cleveland Clinic** (clevelandclinic.org) - Disease and condition articles covering symptoms, diagnosis and treatment
+
+Each source has its own spider and its own metadata extractor, because the three sites
+differ in markup, in navigation structure, and in how much content they hide behind
+interactive elements.
 
 ## Features
 
@@ -252,6 +262,40 @@ The scraped Markdown files are optimized for RAG pipelines:
 4. **Inline Definitions**: Glossary terms flow naturally in text with definitions appended
 5. **Change Tracking**: Only process new/updated articles
 
+### Care-Beacon, the reference consumer
+
+[Care-Beacon](https://github.com/kamlau024/Care-Beacon) is the RAG system built on this
+scraper's output, live at https://care-beacon-health.vercel.app. The two repositories
+form one pipeline with a deliberate split: Vital-Atlas owns acquisition and
+normalisation, Care-Beacon owns retrieval and generation.
+
+```mermaid
+graph LR
+    subgraph VA["Vital-Atlas — this repository"]
+        W["bccancer.bc.ca<br/>cancer.ca<br/>clevelandclinic.org"]
+        S["Scrapy + Playwright<br/>3 spiders · metadata extraction<br/>change detection"]
+        W --> S
+    end
+    MD["scraped_data/&lt;source&gt;/articles/**.md<br/>title · url · date_scraped · breadcrumbs"]
+    subgraph CB["Care-Beacon"]
+        I["ingest.py<br/>parse → chunk → embed"]
+        Q[("Qdrant Cloud")]
+        A["FastAPI + Next.js<br/>retrieve → rerank → cite"]
+        I --> Q --> A
+    end
+    S --> MD --> I
+```
+
+The entire contract between them is the Markdown file and its frontmatter schema —
+nothing more. That is what let Care-Beacon change hosting providers, replace its vector
+store and delete a 272 MB keyword index without a single change to this repository.
+
+**The hand-off is manual.** This scraper writes to its own `scraped_data/`; those files
+are copied into Care-Beacon and ingested there. Nothing reconciles the two sides, so
+articles scraped here are not live until that copy happens.
+
+### Loading the output directly
+
 Example integration with LangChain:
 
 ```python
@@ -271,7 +315,14 @@ ccs_loader = DirectoryLoader(
     loader_cls=UnstructuredMarkdownLoader
 )
 
-documents = bc_loader.load() + ccs_loader.load()
+# Load Cleveland Clinic articles
+cc_loader = DirectoryLoader(
+    'scraped_data/cleveland-clinic/articles/',
+    glob="**/*.md",
+    loader_cls=UnstructuredMarkdownLoader
+)
+
+documents = bc_loader.load() + ccs_loader.load() + cc_loader.load()
 ```
 
 ## Troubleshooting
