@@ -39,23 +39,29 @@ Vital-Atlas/
 │   └── vital_atlas/
 │       ├── spiders/
 │       │   ├── bc_cancer_spider.py           # BC Cancer spider
-│       │   └── canadian_cancer_society_spider.py  # CCS spider
+│       │   ├── canadian_cancer_society_spider.py  # CCS spider
+│       │   └── cleveland_clinic_spider.py    # Cleveland Clinic spider
 │       ├── items.py          # Data structures
 │       ├── pipelines.py      # Data processing pipelines
 │       ├── settings.py       # Scrapy settings
 │       └── utils/            # Utility modules
 │           ├── html_to_markdown.py        # HTML→Markdown converter
 │           ├── bc_cancer_metadata_extractor.py   # BC Cancer metadata
-│           └── ccs_metadata_extractor.py  # CCS metadata
+│           ├── ccs_metadata_extractor.py  # CCS metadata
+│           └── cleveland_clinic_metadata_extractor.py  # Cleveland Clinic metadata
 ├── scraped_data/            # Output directory (created on first run)
 │   ├── bc-cancer/
 │   │   ├── articles/        # BC Cancer markdown files
 │   │   └── metadata/        # BC Cancer JSON metadata
-│   └── canadian-cancer-society/
-│       ├── articles/        # CCS markdown files
-│       └── metadata/        # CCS JSON metadata
+│   ├── canadian-cancer-society/
+│   │   ├── articles/        # CCS markdown files
+│   │   └── metadata/        # CCS JSON metadata
+│   └── cleveland-clinic/
+│       ├── articles/        # Cleveland Clinic markdown files
+│       └── metadata/        # Cleveland Clinic JSON metadata
 ├── run_bc_cancer.sh         # Convenience script for BC Cancer
 ├── run_canadian_cancer_society.sh  # Convenience script for CCS
+├── run_cleveland_clinic.sh  # Convenience script for Cleveland Clinic
 ├── environment.yml          # Conda environment specification
 └── CLAUDE.md               # Project context for Claude
 
