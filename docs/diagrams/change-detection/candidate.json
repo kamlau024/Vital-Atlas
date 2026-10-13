@@ -1,0 +1,287 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "How Each Article Is Classified and Saved",
+    "output": "docs/diagrams/change-detection/change-detection.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/kamlau024/Vital-Atlas.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "ce2bc119c4366a7f2c5f894dc152a268128920f4"
+    },
+    "legend": {
+      "entries": {
+        "backend": {
+          "label": "Processing step"
+        },
+        "security": {
+          "label": "Decision"
+        },
+        "database": {
+          "label": "File on disk"
+        }
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "steps",
+      "label": "Per crawled article"
+    },
+    {
+      "id": "disk",
+      "label": "scraped_data/<source>/"
+    }
+  ],
+  "mainPath": [
+    "receive",
+    "hash",
+    "classify",
+    "write",
+    "record",
+    "log"
+  ],
+  "nodes": [
+    {
+      "id": "receive",
+      "lane": "steps",
+      "col": 0,
+      "type": "backend",
+      "label": "Receive item",
+      "sublabel": "FileStoragePipeline",
+      "width": 150,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/pipelines.py",
+          "line": 94,
+          "end_line": 106,
+          "label": "process_item"
+        }
+      ]
+    },
+    {
+      "id": "hash",
+      "lane": "steps",
+      "col": 1,
+      "type": "backend",
+      "label": "Hash Markdown",
+      "sublabel": "ChangeDetector · MD5",
+      "width": 150,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/utils/change_detector.py",
+          "line": 59,
+          "end_line": 69,
+          "label": "compute_content_hash"
+        }
+      ]
+    },
+    {
+      "id": "classify",
+      "lane": "steps",
+      "col": 2,
+      "type": "security",
+      "label": "Classify",
+      "sublabel": "new · updated · unchanged",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/utils/change_detector.py",
+          "line": 71,
+          "end_line": 123,
+          "label": "new / content / metadata"
+        }
+      ]
+    },
+    {
+      "id": "write",
+      "lane": "steps",
+      "col": 3,
+      "type": "backend",
+      "label": "Write files",
+      "sublabel": "always, even if unchanged",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/pipelines.py",
+          "line": 108,
+          "end_line": 116,
+          "label": "save .md + .json"
+        }
+      ]
+    },
+    {
+      "id": "article-files",
+      "lane": "disk",
+      "col": 3,
+      "type": "database",
+      "label": "articles/**/*.md",
+      "sublabel": "+ metadata/*.json",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/pipelines.py",
+          "line": 137,
+          "end_line": 163,
+          "label": "path from URL"
+        },
+        {
+          "path": "vital_atlas/vital_atlas/pipelines.py",
+          "line": 165,
+          "end_line": 182,
+          "label": "Markdown + frontmatter"
+        }
+      ]
+    },
+    {
+      "id": "record",
+      "lane": "steps",
+      "col": 4,
+      "type": "backend",
+      "label": "Record in index",
+      "sublabel": "hash + tracked fields",
+      "width": 150,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/utils/change_detector.py",
+          "line": 125,
+          "end_line": 154,
+          "label": "record_article"
+        }
+      ]
+    },
+    {
+      "id": "url-index",
+      "lane": "disk",
+      "col": 4,
+      "type": "database",
+      "label": "url_index.json",
+      "sublabel": "one entry per URL",
+      "width": 150,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/utils/change_detector.py",
+          "line": 47,
+          "end_line": 51,
+          "label": "_save_url_index"
+        }
+      ]
+    },
+    {
+      "id": "log",
+      "lane": "steps",
+      "col": 5,
+      "type": "backend",
+      "label": "Log change",
+      "sublabel": "new or updated only",
+      "width": 150,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/utils/change_detector.py",
+          "line": 148,
+          "end_line": 176,
+          "label": "_log_change"
+        }
+      ]
+    },
+    {
+      "id": "change-log",
+      "lane": "disk",
+      "col": 5,
+      "type": "database",
+      "label": "change_log.json",
+      "sublabel": "last 1,000 events",
+      "width": 150,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/utils/change_detector.py",
+          "line": 53,
+          "end_line": 57,
+          "label": "_save_change_log"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "to-hash",
+      "from": "receive",
+      "to": "hash",
+      "variant": "emphasis"
+    },
+    {
+      "id": "to-classify",
+      "from": "hash",
+      "to": "classify",
+      "variant": "emphasis"
+    },
+    {
+      "id": "to-write",
+      "from": "classify",
+      "to": "write",
+      "variant": "emphasis"
+    },
+    {
+      "id": "write-articles",
+      "from": "write",
+      "to": "article-files",
+      "label": "overwrite",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "to-record",
+      "from": "write",
+      "to": "record",
+      "variant": "emphasis"
+    },
+    {
+      "id": "save-index",
+      "from": "record",
+      "to": "url-index",
+      "label": "save",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "to-log",
+      "from": "record",
+      "to": "log",
+      "label": "if new or updated",
+      "variant": "emphasis"
+    },
+    {
+      "id": "append-log",
+      "from": "log",
+      "to": "change-log",
+      "label": "append",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Classification rules",
+      "items": [
+        "New: the URL is not in url_index.json",
+        "Updated: the Markdown's MD5 changed, or its title, last-update or next-review date changed",
+        "Unchanged: everything else"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What gets written",
+      "items": [
+        "The article .md and metadata .json are rewritten on every crawl",
+        "url_index.json is saved after each article",
+        "change_log.json records only new and updated articles, capped at the last 1,000"
+      ]
+    }
+  ]
+}

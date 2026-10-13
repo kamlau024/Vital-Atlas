@@ -17,6 +17,19 @@ Each source has its own spider and its own metadata extractor, because the three
 differ in markup, in navigation structure, and in how much content they hide behind
 interactive elements.
 
+## How a crawl works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture.dark.svg">
+  <img alt="Vital-Atlas crawl architecture. Inside one Scrapy crawl, the bc_cancer, canadian_cancer_society, or cleveland_clinic spider renders pages through scrapy-playwright's headless Chromium, which fetches the source websites; cleveland_clinic also POSTs to an A–Z AJAX index. Spiders pass items to HtmlToMarkdownPipeline and then FileStoragePipeline, which writes Markdown and metadata JSON to scraped_data/&lt;source&gt;/ and has ChangeDetector update url_index and change_log. The files are copied to Care-Beacon by hand." src="docs/diagrams/architecture.light.svg">
+</picture>
+
+- **One spider per crawl.** `scrapy crawl <spider>` (or `run_<source>.sh`) runs one of the three spiders, which writes to its own `scraped_data/<source>/`.
+- **Pages are rendered in headless Chromium** via `scrapy-playwright`, so content built by JavaScript is captured. Each source is discovered differently: BC Cancer by following `/health-info` links, cancer.ca by rendering its three sections and scrolling A–Z lists ([see below](#virtualized-list-handling)), and Cleveland Clinic through its A–Z index, which returns article URLs as JSON for each letter.
+- **Three pipeline stages** turn each page into a file: metadata (extracted in the spider), HTML → Markdown with a per-source converter, then storage with [change detection](#change-detection).
+
+Diagram sources and interactive versions are in [`docs/diagrams/`](docs/diagrams/).
+
 ## Features
 
 - **Multi-Source Crawling**: Scrapes from multiple authoritative cancer information websites
@@ -36,16 +49,20 @@ interactive elements.
 Vital-Atlas/
 ├── vital_atlas/               # Main Scrapy project
 │   ├── scrapy.cfg            # Scrapy configuration
+│   ├── tests/                # pytest suite (pipelines, HTML→Markdown)
 │   └── vital_atlas/
 │       ├── spiders/
 │       │   ├── bc_cancer_spider.py           # BC Cancer spider
 │       │   ├── canadian_cancer_society_spider.py  # CCS spider
 │       │   └── cleveland_clinic_spider.py    # Cleveland Clinic spider
 │       ├── items.py          # Data structures
+│       ├── middlewares.py    # Scrapy middleware template (not enabled)
 │       ├── pipelines.py      # Data processing pipelines
 │       ├── settings.py       # Scrapy settings
 │       └── utils/            # Utility modules
 │           ├── html_to_markdown.py        # HTML→Markdown converter
+│           ├── ccs_html_to_markdown.py    # CCS-specific converter
+│           ├── change_detector.py         # New/updated article detection
 │           ├── bc_cancer_metadata_extractor.py   # BC Cancer metadata
 │           ├── ccs_metadata_extractor.py  # CCS metadata
 │           └── cleveland_clinic_metadata_extractor.py  # Cleveland Clinic metadata
@@ -63,11 +80,14 @@ Vital-Atlas/
 ├── run_canadian_cancer_society.sh  # Convenience script for CCS
 ├── run_cleveland_clinic.sh  # Convenience script for Cleveland Clinic
 ├── environment.yml          # Conda environment specification
-└── CLAUDE.md               # Project context for Claude
+└── Claude.md               # Project context for Claude
 
 ```
 
 ## Setup
+
+<details>
+<summary>Conda environment, Playwright browsers, and verification</summary>
 
 ### 1. Create and Activate Conda Environment
 
@@ -91,9 +111,14 @@ cd vital_atlas
 scrapy list
 ```
 
-You should see `bc_cancer` and `canadian_cancer_society` in the output.
+You should see `bc_cancer`, `canadian_cancer_society`, and `cleveland_clinic` in the output.
+
+</details>
 
 ## Usage
+
+<details>
+<summary>Run commands: convenience scripts and Scrapy</summary>
 
 ### Quick Start with Convenience Scripts
 
@@ -121,6 +146,15 @@ You should see `bc_cancer` and `canadian_cancer_society` in the output.
 ./run_canadian_cancer_society.sh https://cancer.ca/en/treatments -s CLOSESPIDER_ITEMCOUNT=100
 ```
 
+**Cleveland Clinic scraper:**
+```bash
+# Scrape the full A–Z health library
+./run_cleveland_clinic.sh
+
+# Scrape a specific article
+./run_cleveland_clinic.sh https://my.clevelandclinic.org/health/diseases/15548-c-diff-infection
+```
+
 ### Running Directly with Scrapy
 
 From the `vital_atlas` directory:
@@ -132,12 +166,17 @@ scrapy crawl bc_cancer
 # Canadian Cancer Society
 scrapy crawl canadian_cancer_society
 
+# Cleveland Clinic
+scrapy crawl cleveland_clinic
+
 # With custom URL
 scrapy crawl canadian_cancer_society -a url=https://cancer.ca/en/cancer-information/resources/glossary
 
 # With custom settings
 scrapy crawl bc_cancer -s DOWNLOAD_DELAY=3 -s LOG_LEVEL=INFO
 ```
+
+</details>
 
 ### Output Structure
 
@@ -174,6 +213,8 @@ scraped_data/
         ├── url_index.json
         └── change_log.json
 ```
+
+`cleveland-clinic/` follows the same `articles/` + `metadata/` layout.
 
 ### Markdown File Format
 
@@ -223,10 +264,16 @@ The Canadian Cancer Society spider automatically processes interactive glossary 
 
 ### Virtualized List Handling
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/scroll-capture.dark.svg">
+  <img alt="Scroll-capture loop on cancer.ca. When the canadian_cancer_society spider finds an A–Z list, it reads the rendered DOM, collects any new links, scrolls 500 px, waits 0.5 s, and checks whether to keep going. It loops back to read the DOM until 5 scrolls in a row add no new links or 100 scrolls have run, then follows every captured link." src="docs/diagrams/scroll-capture.light.svg">
+</picture>
+
 For pages with dynamically-loaded content (like the glossary index):
 - Uses incremental scrolling to capture all items
 - Scrolls 500px at a time, capturing new links at each position
 - Handles lists that recycle DOM elements (only ~40 items visible at once)
+- Stops after 5 scrolls in a row add no new links, or after 100 scrolls
 - Successfully captures 1,100+ glossary entries from A-Z
 
 ### Smart Content Filtering
@@ -240,23 +287,29 @@ Automatically removes non-content elements:
 
 ## Change Detection
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/change-detection.dark.svg">
+  <img alt="How each crawled article is classified and saved. FileStoragePipeline receives the item; ChangeDetector hashes the Markdown with MD5 and classifies it as new, updated, or unchanged. The article Markdown and metadata JSON are always written. The URL index is updated, and a change-log entry is appended only when the article is new or updated." src="docs/diagrams/change-detection.light.svg">
+</picture>
+
 The scraper automatically tracks changes between runs:
 
-- **New Articles**: First-time discoveries are logged
-- **Updated Content**: Changes to article content are detected via content hash
-- **Metadata Changes**: Updates to titles, dates, and other metadata are tracked
+- **New Articles**: URLs not yet in `url_index.json` are logged as new
+- **Updated Content**: Changes to article content are detected via an MD5 hash of the Markdown
+- **Metadata Changes**: A changed title, last-update date, or next-review date also counts as an update
+- **Unchanged Articles**: Still rewritten on every crawl, but nothing is logged for them
 
-View recent changes in `scraped_data/[source]/metadata/change_log.json`.
+View recent changes in `scraped_data/[source]/metadata/change_log.json`, which keeps the most recent 1,000 new or updated events.
 
 ## Configuration
 
-Key settings in `vital_atlas/vital_atlas/settings.py`:
+Key settings in `vital_atlas/vital_atlas/settings.py`, some overridden per spider in `custom_settings`:
 
-- `DOWNLOAD_DELAY`: Time between requests (default: 1 second for CCS, 2 for BC Cancer)
-- `CONCURRENT_REQUESTS`: Max concurrent requests (default: 8)
+- `DOWNLOAD_DELAY`: Time between requests (2 seconds by default; 1 second for CCS and Cleveland Clinic)
+- `CONCURRENT_REQUESTS`: Max concurrent requests (8 by default; 4 for CCS, 3 for Cleveland Clinic)
 - `ROBOTSTXT_OBEY`: Respect robots.txt (default: True)
-- `PLAYWRIGHT_MAX_PAGES_PER_CONTEXT`: Browser contexts (default: 5)
-- `HTTPCACHE_ENABLED`: Enable HTTP cache (default: False for CCS to support Playwright)
+- `PLAYWRIGHT_MAX_PAGES_PER_CONTEXT`: Max pages per browser context (5 for CCS, 3 for Cleveland Clinic)
+- `HTTPCACHE_ENABLED`: Enable HTTP cache (on by default; off for CCS and Cleveland Clinic so Playwright pages load fresh)
 
 ## Use with RAG Pipeline
 
@@ -266,7 +319,7 @@ The scraped Markdown files are optimized for RAG pipelines:
 2. **Rich Metadata**: Frontmatter includes all contextual information
 3. **Clean Formatting**: Minimal noise, maximum signal
 4. **Inline Definitions**: Glossary terms flow naturally in text with definitions appended
-5. **Change Tracking**: Only process new/updated articles
+5. **Change Tracking**: `change_log.json` lists new and updated articles, so a consumer can re-ingest only those
 
 ### Care-Beacon, the reference consumer
 
@@ -333,6 +386,9 @@ documents = bc_loader.load() + ccs_loader.load() + cc_loader.load()
 
 ## Troubleshooting
 
+<details>
+<summary>Playwright, timeouts, virtualized lists, and permissions</summary>
+
 ### Playwright Issues
 
 If Playwright fails to launch browsers:
@@ -360,6 +416,8 @@ Ensure the output directory is writable:
 ```bash
 chmod -R 755 scraped_data/
 ```
+
+</details>
 
 ## Development
 
