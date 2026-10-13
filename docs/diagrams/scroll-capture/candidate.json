@@ -1,0 +1,230 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Capturing a Virtualized A–Z List (cancer.ca)",
+    "output": "docs/diagrams/scroll-capture/scroll-capture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/kamlau024/Vital-Atlas.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "ce2bc119c4366a7f2c5f894dc152a268128920f4"
+    },
+    "legend": {
+      "entries": {
+        "frontend": {
+          "label": "Browser action"
+        },
+        "backend": {
+          "label": "Spider logic"
+        },
+        "security": {
+          "label": "Stop check"
+        }
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "spider",
+      "label": "canadian_cancer_society spider"
+    },
+    {
+      "id": "loop",
+      "label": "Scroll loop · Playwright page"
+    }
+  ],
+  "mainPath": [
+    "detect",
+    "read-dom",
+    "collect",
+    "scroll",
+    "keep-going",
+    "follow"
+  ],
+  "nodes": [
+    {
+      "id": "detect",
+      "lane": "spider",
+      "col": 0,
+      "type": "backend",
+      "label": "A–Z list found",
+      "sublabel": ".alphabetical-list on page",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 88,
+          "end_line": 98,
+          "label": "route to scroll handler"
+        },
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 553,
+          "end_line": 558,
+          "label": "list detection"
+        }
+      ]
+    },
+    {
+      "id": "read-dom",
+      "lane": "loop",
+      "col": 1,
+      "type": "frontend",
+      "label": "Read rendered DOM",
+      "sublabel": "only a slice is in the DOM",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 589,
+          "end_line": 598,
+          "label": "page.content() + links"
+        }
+      ]
+    },
+    {
+      "id": "collect",
+      "lane": "loop",
+      "col": 2,
+      "type": "backend",
+      "label": "Collect new links",
+      "sublabel": "add to set · count new",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 600,
+          "end_line": 610,
+          "label": "dedupe + miss counter"
+        }
+      ]
+    },
+    {
+      "id": "scroll",
+      "lane": "loop",
+      "col": 3,
+      "type": "frontend",
+      "label": "Scroll 500 px",
+      "sublabel": "scrollBy · wait 0.5 s",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 612,
+          "end_line": 618,
+          "label": "scrollBy + sleep"
+        }
+      ]
+    },
+    {
+      "id": "keep-going",
+      "lane": "loop",
+      "col": 4,
+      "type": "security",
+      "label": "Keep going?",
+      "sublabel": "stop: 5 misses or 100 scrolls",
+      "width": 175,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 582,
+          "end_line": 589,
+          "label": "loop limits"
+        }
+      ]
+    },
+    {
+      "id": "follow",
+      "lane": "spider",
+      "col": 5,
+      "type": "backend",
+      "label": "Follow every link",
+      "sublabel": "in-section · parse_article",
+      "width": 160,
+      "sources": [
+        {
+          "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py",
+          "line": 620,
+          "end_line": 645,
+          "label": "normalize + request"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "open-list",
+      "from": "detect",
+      "to": "read-dom",
+      "variant": "emphasis",
+      "route": "drop",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "visible-links",
+      "from": "read-dom",
+      "to": "collect",
+      "label": "page.content()",
+      "variant": "emphasis"
+    },
+    {
+      "id": "next-position",
+      "from": "collect",
+      "to": "scroll",
+      "variant": "emphasis"
+    },
+    {
+      "id": "after-scroll",
+      "from": "scroll",
+      "to": "keep-going",
+      "variant": "emphasis"
+    },
+    {
+      "id": "stop",
+      "from": "keep-going",
+      "to": "follow",
+      "label": "stop",
+      "variant": "emphasis"
+    },
+    {
+      "id": "keep-scrolling",
+      "from": "keep-going",
+      "to": "read-dom",
+      "label": "keep scrolling",
+      "variant": "dashed",
+      "role": "return",
+      "route": "bottom-channel",
+      "fromSide": "bottom",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Why scroll in steps",
+      "items": [
+        "The list is virtualized: only a slice of its items exists in the DOM at any moment",
+        "So links are captured at every scroll position, not once at the end"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Stop rule",
+      "items": [
+        "Stop after 5 scrolls in a row add no new links",
+        "Hard cap of 100 scrolls"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "After capture",
+      "items": [
+        "Each link is normalized (fragment removed) and followed once",
+        "Only links inside the three target sections are scraped"
+      ]
+    }
+  ]
+}

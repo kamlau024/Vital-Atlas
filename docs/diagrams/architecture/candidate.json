@@ -1,0 +1,143 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Vital-Atlas — How a Crawl Works",
+    "output": "docs/diagrams/architecture/architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/kamlau024/Vital-Atlas.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "ce2bc119c4366a7f2c5f894dc152a268128920f4"
+    }
+  },
+  "components": [
+    {
+      "id": "websites", "type": "external", "label": "Source websites",
+      "sublabel": "bccancer.bc.ca · cancer.ca · my.clevelandclinic.org",
+      "pos": [240, 40], "size": [320, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/spiders/bc_cancer_spider.py", "line": 18, "end_line": 27, "label": "bc_cancer start URL" },
+        { "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py", "line": 20, "end_line": 44, "label": "CCS start URLs" },
+        { "path": "vital_atlas/vital_atlas/spiders/cleveland_clinic_spider.py", "line": 20, "end_line": 41, "label": "Cleveland Clinic start URL" }
+      ]
+    },
+    {
+      "id": "playwright", "type": "backend", "label": "scrapy-playwright", "sublabel": "headless Chromium · JS rendering",
+      "pos": [290, 190], "size": [220, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/settings.py", "line": 41, "end_line": 52, "label": "download handler + Chromium" }
+      ]
+    },
+    {
+      "id": "bc-spider", "type": "backend", "label": "bc_cancer", "sublabel": "follows /health-info links",
+      "pos": [40, 350], "size": [200, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/spiders/bc_cancer_spider.py", "line": 63, "end_line": 110, "label": "link discovery" }
+      ]
+    },
+    {
+      "id": "ccs-spider", "type": "backend", "label": "canadian_cancer_society", "sublabel": "3 sections · scrolls A–Z lists",
+      "pos": [300, 350], "size": [200, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py", "line": 79, "end_line": 177, "label": "crawl + article detection" },
+        { "path": "vital_atlas/vital_atlas/spiders/canadian_cancer_society_spider.py", "line": 560, "end_line": 645, "label": "A–Z scroll capture" }
+      ]
+    },
+    {
+      "id": "cc-spider", "type": "backend", "label": "cleveland_clinic", "sublabel": "A–Z AJAX index → articles",
+      "pos": [560, 350], "size": [200, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/spiders/cleveland_clinic_spider.py", "line": 74, "end_line": 101, "label": "POST per letter" },
+        { "path": "vital_atlas/vital_atlas/spiders/cleveland_clinic_spider.py", "line": 103, "end_line": 148, "label": "JSON → article requests" }
+      ]
+    },
+    {
+      "id": "markdown-pipeline", "type": "backend", "label": "HtmlToMarkdownPipeline", "sublabel": "per-source converter",
+      "pos": [285, 510], "size": [230, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/pipelines.py", "line": 33, "end_line": 62, "label": "converter per spider" },
+        { "path": "vital_atlas/vital_atlas/settings.py", "line": 55, "end_line": 59, "label": "pipeline order" }
+      ]
+    },
+    {
+      "id": "file-storage", "type": "backend", "label": "FileStoragePipeline", "sublabel": "writes .md + metadata .json",
+      "pos": [295, 660], "size": [210, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/pipelines.py", "line": 94, "end_line": 135, "label": "save + classify" },
+        { "path": "vital_atlas/vital_atlas/pipelines.py", "line": 137, "end_line": 163, "label": "path from URL" }
+      ]
+    },
+    {
+      "id": "change-detector", "type": "backend", "label": "ChangeDetector", "sublabel": "MD5 · new / updated",
+      "pos": [600, 660], "size": [190, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/utils/change_detector.py", "line": 59, "end_line": 123, "label": "hash + compare" },
+        { "path": "vital_atlas/vital_atlas/utils/change_detector.py", "line": 125, "end_line": 176, "label": "index + change log" }
+      ]
+    },
+    {
+      "id": "scraped-data", "type": "database", "label": "scraped_data/<source>/", "sublabel": "articles/*.md · metadata/*.json",
+      "pos": [270, 810], "size": [260, 64],
+      "sources": [
+        { "path": "vital_atlas/vital_atlas/spiders/bc_cancer_spider.py", "line": 24, "end_line": 27, "label": "per-source data dir" },
+        { "path": "vital_atlas/vital_atlas/utils/change_detector.py", "line": 47, "end_line": 57, "label": "url_index + change_log" }
+      ]
+    },
+    {
+      "id": "care-beacon", "type": "external", "label": "Care-Beacon", "sublabel": "manual copy → ingest.py",
+      "pos": [305, 960], "size": [190, 64],
+      "sources": [
+        { "path": "README.md", "line": 271, "end_line": 301, "label": "downstream consumer" }
+      ]
+    }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Scrapy project · one spider per crawl", "wraps": ["playwright", "bc-spider", "ccs-spider", "cc-spider", "markdown-pipeline", "file-storage", "change-detector"] }
+  ],
+  "connections": [
+    { "id": "browser-fetch", "from": "playwright", "to": "websites", "label": "HTTPS · renders JS", "variant": "emphasis" },
+    { "id": "bc-render", "from": "bc-spider", "to": "playwright" },
+    { "id": "ccs-render", "from": "ccs-spider", "to": "playwright" },
+    { "id": "cc-render", "from": "cc-spider", "to": "playwright" },
+    { "id": "cc-ajax-index", "from": "cc-spider", "to": "websites", "label": "POST /AtoZ · JSON" },
+    { "id": "bc-items", "from": "bc-spider", "to": "markdown-pipeline" },
+    { "id": "ccs-items", "from": "ccs-spider", "to": "markdown-pipeline" },
+    { "id": "cc-items", "from": "cc-spider", "to": "markdown-pipeline" },
+    { "id": "markdown-to-storage", "from": "markdown-pipeline", "to": "file-storage", "label": "Markdown", "variant": "emphasis" },
+    { "id": "classify", "from": "file-storage", "to": "change-detector", "label": "hash + dates" },
+    { "id": "write-files", "from": "file-storage", "to": "scraped-data", "label": "write files", "variant": "emphasis" },
+    { "id": "write-index", "from": "change-detector", "to": "scraped-data", "label": "url_index · change_log" },
+    { "id": "manual-copy", "from": "scraped-data", "to": "care-beacon", "label": "manual copy", "variant": "dashed" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Discovery, per source",
+      "items": [
+        "bc_cancer follows every /health-info link from its start page",
+        "canadian_cancer_society renders every page in 3 sections and scrolls A–Z lists to capture links",
+        "cleveland_clinic POSTs each letter A–Z and # to an AJAX index, then scrapes the article URLs it returns"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Politeness",
+      "items": [
+        "robots.txt is obeyed and cookies are off",
+        "2 s between requests by default; 1 s with lower concurrency for cancer.ca and Cleveland Clinic",
+        "cancer.ca timeouts are retried up to 3 times with a 90 s limit"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Change detection",
+      "items": [
+        "New: the URL is not yet in url_index.json",
+        "Updated: the Markdown's MD5 or its title / review dates changed",
+        "Every crawled article is rewritten; change_log.json keeps the last 1,000 new or updated events"
+      ]
+    }
+  ]
+}
